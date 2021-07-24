@@ -21,6 +21,13 @@ type User struct {
 	Password string `json:"password"`
 }
 
+type Luser struct {
+	gorm.Model
+
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
 func HashPassword(password string) (string, error) {
 	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 14)
 	return string(bytes), err
@@ -52,17 +59,54 @@ func signUp(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		fmt.Println("error in here")
-		panic(err)
+		fmt.Fprintf(w, "email is  already there")
+		//panic(err)
 	} else {
 		fmt.Println("\nRow inserted successfully!")
-	}
+		fmt.Fprintf(w, "succes")
 
-	w.WriteHeader(http.StatusOK)
+	}
 
 }
 
 func signIn(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "signin hit")
+	fmt.Println("signin hit")
+	db := dbconnect()
+	var l Luser
+	err := json.NewDecoder(r.Body).Decode(&l)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	result := db.QueryRow("select password from emp where email=$1", l.Email)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	storedCreds := l
+	err = result.Scan(&storedCreds.Password)
+	if err != nil {
+
+		if err == sql.ErrNoRows {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	match := CheckPasswordHash(l.Password, storedCreds.Password)
+	fmt.Println("Match:   ", match)
+
+	if err = bcrypt.CompareHashAndPassword([]byte(storedCreds.Password), []byte(l.Password)); err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		fmt.Println("wrong pass")
+	} else {
+		fmt.Fprintf(w, "password matches")
+
+	}
+
 }
 
 func homePage(w http.ResponseWriter, r *http.Request) {
@@ -74,7 +118,7 @@ func handleRequests() {
 	myRouter := mux.NewRouter().StrictSlash(true)
 	myRouter.HandleFunc("/", homePage).Methods("GET")
 	myRouter.HandleFunc("/api/signUp", signUp).Methods("POST")
-	myRouter.HandleFunc("/api/signIn", signIn).Methods("GET")
+	myRouter.HandleFunc("/api/signIn", signIn).Methods("POST")
 
 	log.Fatal(http.ListenAndServe(":8081", myRouter))
 }
